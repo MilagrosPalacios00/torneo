@@ -1,5 +1,5 @@
 // Guarda la app en el teléfono para que funcione sin señal.
-const CACHE = 'torneo-v3';
+const CACHE = 'torneo-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

@@ -191,10 +191,16 @@ var CARDS={
   abajo:{name:'Empiezan perdiendo',kind:'arranque',icon:'🐢',color:'#7A4FE0',desc:'Arrancan el partido 0-1 abajo. Ese game cuenta en el marcador.'}
 };
 var KIND={contra:'➖ Contra',beneficio:'➕ Beneficio',arranque:'🎲 Arranque'};
-var MORNING_N=10, AFT_N=9, FINAL_N=3, REV_N=5, DEF_DUR=38, SUN_MAX=125, JF=4*60*1000;
+var FINAL_N=3, DEF_DUR=38, SUN_MAX=125, JF=4*60*1000;
+function NC(){return S.settings.courts===3?3:2;}
+function COURTS(){return NC()===3?[1,2,3]:[1,2];}
+function MORNING_N(){return NC()===3?15:10;}
+function AFT_N(){return NC()===3?12:9;}
+function REV_N(){return NC()===3?8:5;}
+function KCR(){return AFT_N()/3;}
 var DURS=[180,195,210,225];
 
-function newState(){return {v:2,phase:'setup',players:[],settings:{cards:true,emergency:false,lesion:'4',maxMin:195},
+function newState(){return {v:2,phase:'setup',players:[],settings:{cards:true,emergency:false,lesion:'4',maxMin:195,courts:2},
   matches:[],seq:1,teams:null,leaders:null,arrastre:{},bombos:null,cardPlan:null,extraM:0,
   morningCut:false,afternoonCut:false,tb:{},sunday:null,clock:{}};}
 function load(){try{var r=localStorage.getItem(KEY);if(r){var s=JSON.parse(r);if(s&&s.v===2&&s.players)return s;}}catch(e){}return newState();}
@@ -242,18 +248,18 @@ function factor(m){return 5/(m.target||5);}
 function mins(m){return Math.max(0,Math.floor((now()-m.t0)/60000));}
 function extrasOn(ph){if(!S.settings.cards)return false;if(ph==='M'||ph==='T')return true;if(ph==='R')return !!(S.sunday&&S.sunday.extras);return false;}
 function phOfPhase(){return S.phase==='morning'?['M']:S.phase==='afternoon'?['T']:S.phase==='sunday'?['F','R']:[];}
-function planned(ph){return ph==='M'?MORNING_N+(S.extraM||0):ph==='T'?AFT_N:ph==='F'?FINAL_N:REV_N;}
+function planned(ph){return ph==='M'?MORNING_N()+(S.extraM||0):ph==='T'?(S.aftN||AFT_N()):ph==='F'?FINAL_N:REV_N();}
 function prioritySort(ids,phs){
   return shuffle(ids).map(function(id){return {id:id,pj:countPJ(id,phs),jf:jf(id)?1:0,le:lastEnd(id)};})
     .sort(function(x,y){return x.pj-y.pj||x.jf-y.jf||x.le-y.le;}).map(function(o){return o.id;});
 }
-function splitCost(a,b){return partnerCount(a[0],a[1])*300+partnerCount(b[0],b[1])*300+oppCount(a[0],b[0])+oppCount(a[0],b[1])+oppCount(a[1],b[0])+oppCount(a[1],b[1]);}
+function splitCost(a,b){var W=NC()===3?2000:300;return partnerCount(a[0],a[1])*W+partnerCount(b[0],b[1])*W+oppCount(a[0],b[0])+oppCount(a[0],b[1])+oppCount(a[1],b[0])+oppCount(a[1],b[1]);}
 function bestSplit(f,need){
   var opts=shuffle([[[f[0],f[1]],[f[2],f[3]]],[[f[0],f[2]],[f[1],f[3]]],[[f[0],f[3]],[f[1],f[2]]]]);
   var best=null,bc=1e9;
   var both=function(p){return need&&need.has(p[0])&&need.has(p[1]);};
   var any=function(p){return need&&(need.has(p[0])||need.has(p[1]));};
-  opts.forEach(function(o){var c=splitCost(o[0],o[1])-((both(o[0])||both(o[1]))?120:0)+((any(o[0])&&any(o[1]))?150:0);if(c<bc){bc=c;best=o;}});
+  opts.forEach(function(o){var c=splitCost(o[0],o[1])-((both(o[0])||both(o[1]))?(NC()===3?250:120):0)+((any(o[0])&&any(o[1]))?150:0);if(c<bc){bc=c;best=o;}});
   return {a:best[0],b:best[1],cost:bc};
 }
 function addMatch(o){
@@ -346,10 +352,10 @@ function assignDoble(m){
   var remAfter=planned(m.ph)-countCreated(m.ph);
   var cap=Math.ceil(4*planned(m.ph)/pool.length);
   var others=need.filter(function(id){return !has(m,id);}).length;
-  var urgent=n.some(function(id){return countPJ(id,[m.ph])>=1;})||need.length>2*remAfter||others>2*remAfter;
+  var urgent=n.some(function(id){return countPJ(id,[m.ph])>=(NC()===3?3:1);})||need.length>2*remAfter||others>2*remAfter;
   if(n.length===2||urgent){m.dbl=best;
     var on=best==='a'?nB:nA;
-    if(remAfter<=3&&on.some(function(id){return countPJ(id,[m.ph])>=1;}))m.dbl='ab';
+    if(remAfter<=(NC()===3?3:3)&&on.some(function(id){return countPJ(id,[m.ph])>=1;}))m.dbl='ab';
   }
 }
 function assignLider(m){
@@ -360,8 +366,11 @@ function assignLider(m){
 function currentLeader(ph){if(!extrasOn(ph)||countDone(ph)<2)return null;var pool=poolFor(ph);var rk=ranking([ph]).filter(function(r){return r.pj>0&&pool.indexOf(r.id)>=0;});return rk.length?rk[0].id:null;}
 function makeCardPlan(){
   var deck={};TEAM_IDS.forEach(function(t){deck[t]=shuffle([pick(['sinsegundo','mano']),pick(['turbo','robo']),pick(['arriba','abajo'])]);});
-  var x=Math.floor(Math.random()*4), mk=function(t1,t2,n1){var a=[];for(var i=0;i<3;i++)a.push(i<n1?t1:t2);return shuffle(a);};
-  S.cardPlan={deck:deck,owners:{'azul-verde':mk('azul','verde',x),'azul-naranja':mk('azul','naranja',3-x),'naranja-verde':mk('verde','naranja',x)}};
+  var k=planned('T')/3, a,b,c,d,e,f, tries=0;
+  do{a=Math.floor(Math.random()*4);b=Math.floor(Math.random()*4);d=Math.floor(Math.random()*4);c=3-a;e=3-b;f=3-d;tries++;}
+  while(tries<500&&!(a+b<=k&&c+d<=k&&e+f<=k&&e>=0&&f>=0));
+  var mk=function(t1,n1,t2,n2){var arr=[];for(var i=0;i<k;i++)arr.push(i<n1?t1:(i<n1+n2?t2:null));return shuffle(arr);};
+  S.cardPlan={deck:deck,owners:{'azul-verde':mk('azul',a,'verde',b),'azul-naranja':mk('azul',c,'naranja',d),'naranja-verde':mk('verde',e,'naranja',f)}};
 }
 function ckey(a,b){return [a,b].sort().join('-');}
 function cardsUsed(team,exceptId){return S.matches.filter(function(m){return m.ph==='T'&&valid(m)&&m.id!==exceptId&&m.card&&(m.card.side==='a'?m.ta:m.tb)===team;}).length;}
@@ -385,8 +394,8 @@ function drawMorning(court,excl,ph){
   var minpj=Math.min.apply(null,cand.map(function(id){return countPJ(id,[ph]);}));
   var phm=S.matches.filter(function(x){return x.ph===ph&&valid(x);});
   var waited=function(id){var c=0;for(var q=phm.length-1;q>=0;q--){if(has(phm[q],id))break;c++;}return c;};
-  var must=cand.filter(function(id){return waited(id)>=4&&countPJ(id,[ph])<cap;});
-  var info={};cand.forEach(function(id,i){var pj=countPJ(id,[ph]);info[id]=(pj-minpj)*1000+(pj>=cap?5000:0)+(jf(id)?150:0)+i*10;});
+  var must=cand.filter(function(id){return waited(id)>=2*NC()&&countPJ(id,[ph])<cap;});
+  var info={};cand.forEach(function(id,i){var pj=countPJ(id,[ph]);info[id]=(pj-minpj)*(NC()===3?1500:1000)+(pj>=cap?5000:0)+(jf(id)?150:0)+i*10;});
   var best=null,bc=1e9;
   for(var i=0;i<cand.length;i++)for(var j=i+1;j<cand.length;j++)for(var k=j+1;k<cand.length;k++)for(var l=k+1;l<cand.length;l++){
     var f=[cand[i],cand[j],cand[k],cand[l]];
@@ -403,7 +412,7 @@ function drawMorning(court,excl,ph){
 function crucesRemaining(){
   var used={};
   S.matches.forEach(function(m){if(m.ph==='T'&&valid(m)){var k=ckey(m.ta,m.tb);used[k]=(used[k]||0)+1;}});
-  var rem=[];[['azul','verde'],['azul','naranja'],['verde','naranja']].forEach(function(c){var k=ckey(c[0],c[1]);for(var i=(used[k]||0);i<3;i++)rem.push(i%2?[c[1],c[0]]:c);});
+  var rem=[];[['azul','verde'],['azul','naranja'],['verde','naranja']].forEach(function(c){var k=ckey(c[0],c[1]);for(var i=(used[k]||0);i<planned('T')/3;i++)rem.push(i%2?[c[1],c[0]]:c);});
   return rem;
 }
 function borrowCount(team){return S.matches.filter(function(m){return m.ph==='T'&&valid(m)&&((m.ta===team&&m.bor.a)||(m.tb===team&&m.bor.b));}).length;}
@@ -435,7 +444,7 @@ var FORCE=false, WAIT=false;
 function drawAfternoon(court,excl){
   var rem=crucesRemaining();
   if(S.afternoonCut||!rem.length){toast('Ya se sortearon todos los cruces');return false;}
-  var busy=onCourt(), best=null, bc=1e9, perTeam=2*AFT_N/3;
+  var busy=onCourt(), best=null, bc=1e9, perTeam=2*planned('T')/3;
   var minPJ=function(t){var v=S.teams[t].filter(function(id){return !P(id).out;}).map(function(id){return countPJ(id,['T']);});return v.length?Math.min.apply(null,v):0;};
   var excess=function(t,pair,bor){return pair.reduce(function(s,id){return s+(id===bor?0:countPJ(id,['T'])-minPJ(t));},0);};
   var viol=function(t,pair){var act=S.teams[t].filter(function(id){return !P(id).out;});if(act.length!==5)return 0;
@@ -466,7 +475,7 @@ function drawFinal(court){
   return true;
 }
 function drawSunday(court,excl){
-  var fLeft=countCreated('F')<FINAL_N, rLeft=countCreated('R')<REV_N;
+  var fLeft=countCreated('F')<FINAL_N, rLeft=countCreated('R')<REV_N();
   if(court===1&&fLeft&&drawFinal(1))return true;
   if(rLeft)return drawMorning(court,excl,'R');
   if(fLeft&&drawFinal(court))return true;
@@ -485,7 +494,7 @@ function canDraw(c){
     if(countCreated('M')>=planned('M'))return {ok:false,msg:'¡Ya salieron todos los partidos de la mañana! 🎉'};return {ok:true};}
   if(S.phase==='afternoon'){if(S.afternoonCut)return {ok:false,msg:'Tarde cerrada ✋'};
     if(!crucesRemaining().length)return {ok:false,msg:'¡Ya salieron todos los cruces! 🎉'};return {ok:true};}
-  if(S.phase==='sunday'){var f=countCreated('F')<FINAL_N, r=countCreated('R')<REV_N;
+  if(S.phase==='sunday'){var f=countCreated('F')<FINAL_N, r=countCreated('R')<REV_N();
     if(f||r)return {ok:true};return {ok:false,msg:'¡Domingo completo! 🏆'};}
   return {ok:false,msg:''};
 }
@@ -512,12 +521,12 @@ function avgDur(phs){
 function estimate(){
   var phs=phOfPhase();if(!phs.length||!S.clock[S.phase])return null;
   var avg=avgDur(phs), t=now();
-  var courts=[1,2].map(function(c){var m=courtMatch(c);return m?Math.max(m.t0+avg*60000,t+3*60000):t;});
+  var courts=COURTS().map(function(c){var m=courtMatch(c);return m?Math.max(m.t0+avg*60000,t+3*60000):t;});
   var rem=0;phs.forEach(function(ph){rem+=Math.max(0,planned(ph)-countCreated(ph));});
   if(S.phase==='morning'&&S.morningCut)rem=0;if(S.phase==='afternoon'&&S.afternoonCut)rem=0;
   for(var i=0;i<rem;i++){courts.sort(function(a,b){return a-b;});courts[0]+=avg*60000;}
-  var end=Math.max(courts[0],courts[1]), start=S.clock[S.phase], max=(S.phase==='sunday'?SUN_MAX:S.settings.maxMin)*60000;
-  return {start:start,end:end,limit:start+max,avg:avg,elapsed:(t-start)/60000,rem:rem,oneMore:Math.min(courts[0],courts[1])+avg*60000};
+  var end=Math.max.apply(null,courts), start=S.clock[S.phase], max=(S.phase==='sunday'?SUN_MAX:S.settings.maxMin)*60000;
+  return {start:start,end:end,limit:start+max,avg:avg,elapsed:(t-start)/60000,rem:rem,oneMore:Math.min.apply(null,courts)+avg*60000};
 }
 
 // ---------- UI shell
@@ -562,11 +571,15 @@ function view(){
 function vSetup(){
   return '<div class="card hero pop"><h1>¡Hola, organizadora! 👋</h1><p>Cargá las 15 jugadoras, una por línea. Después la app hace todo: sorteos, ranking, equipos y cartas.</p></div>'+
   '<div class="card"><textarea id="names" rows="15" placeholder="Ana&#10;Belu&#10;Caro&#10;...">'+esc(SETUP_DRAFT)+'</textarea>'+
-  '<p class="muted center" id="ncount"></p><button class="btn big" data-act="start">🚀 Arrancar la mañana</button>'+
+  '<p class="muted center" id="ncount"></p>'+courtsRow()+'<button class="btn big" data-act="start">🚀 Arrancar la mañana</button>'+
   '<button class="btn w sm" data-act="demo">🧪 Cargar nombres de prueba</button>'+
   '<button class="btn w sm" data-act="import">📥 Importar un respaldo</button></div>'+
   '<div class="card"><h3 style="margin-top:0">📲 Antes de viajar</h3><p class="muted">Todo se guarda en este teléfono y funciona sin internet. Probala en modo avión y hacé respaldos desde ⚙️ Más.</p></div>';
 }
+function canChangeCourts(){return S.phase==='setup'||S.phase==='midday'||S.phase==='closed'||(S.phase==='morning'&&!S.matches.some(valid))||(S.phase==='afternoon'&&!S.matches.some(function(m){return m.ph==='T'&&valid(m);}))||(S.phase==='sunday'&&!S.matches.some(function(m){return (m.ph==='F'||m.ph==='R')&&valid(m);}));}
+function courtsRow(){var ok=canChangeCourts();
+  return '<div class="setrow"><span>🎾 Canchas<br><span class="muted">'+(NC()===3?'Mañana 15 partidos (4 cada una) · tarde 12 (cada equipo 8)':'Mañana 10 partidos · tarde 9 (cada equipo 6)')+(ok?'':'. Se puede cambiar entre tandas, no en medio de una.')+'</span></span>'+
+    '<button class="sw on" data-act="tgCourts" '+(ok?'':'disabled')+'>'+NC()+' canchas</button></div>';}
 function clockLine(){
   var e=estimate();
   if(!e)return '<div class="clock ok">⏱ El reloj arranca con el primer sorteo · máximo '+dur(S.phase==='sunday'?SUN_MAX:S.settings.maxMin)+'</div>';
@@ -594,8 +607,8 @@ function hints(){
 function progressCard(){
   var done,total,label;
   if(S.phase==='morning'){done=countDone('M');total=S.morningCut?countCreated('M'):planned('M');label='☀️ Mañana individual';}
-  else if(S.phase==='afternoon'){done=countDone('T');total=S.afternoonCut?countCreated('T'):AFT_N;label='🌇 Tarde por equipos';}
-  else {done=countDone('F')+countDone('R');total=FINAL_N+REV_N;label='🌞 Gran Final y Revancha';}
+  else if(S.phase==='afternoon'){done=countDone('T');total=S.afternoonCut?countCreated('T'):planned('T');label='🌇 Tarde por equipos';}
+  else {done=countDone('F')+countDone('R');total=FINAL_N+REV_N();label='🌞 Gran Final y Revancha';}
   var pct=total?Math.round(done*100/total):0;
   return '<div class="card"><div style="display:flex;align-items:center"><b>'+label+'</b><span style="margin-left:auto;font-weight:900;color:#4A1FC2">'+done+' / '+total+'</span></div><div class="prog"><div style="width:'+pct+'%"></div></div>'+clockLine()+hints()+'</div>';
 }
@@ -627,7 +640,7 @@ function matchBody(m){
     '<div class="row2">'+(m.ph!=='F'?'<button class="btn w sm" data-act="reroll" data-arg="'+m.id+'">🔁 Re-sortear</button>':'')+'<button class="btn w sm" data-act="cancel" data-arg="'+m.id+'">✖️ Cancelar</button></div>';
 }
 function courtCard(c){
-  var m=courtMatch(c), col=c===1?'#FF4D8D':'#2D7FF9', body;
+  var m=courtMatch(c), col=['','#FF4D8D','#2D7FF9','#16A06A'][c], body;
   if(m)body=matchBody(m);
   else{var cd=canDraw(c);body=cd.ok?'<button class="btn y big" data-act="draw" data-arg="'+c+'">🎲 Sortear partido</button>':'<div class="empty">'+cd.msg+'</div>';}
   var label=m&&m.ph==='F'?' · Gran Final':m&&m.ph==='R'?' · Revancha':'';
@@ -655,7 +668,7 @@ function phaseActions(){
 function vCanchas(){
   if(S.phase==='midday')return vMidday();
   if(S.phase==='closed')return vClosed();
-  var h=progressCard()+phaseActions()+courtCard(1)+courtCard(2)+queueCard();
+  var h=progressCard()+phaseActions()+COURTS().map(courtCard).join('')+queueCard();
   if(S.phase==='sunday')h+=sundayStandings();
   return h;
 }
@@ -667,7 +680,7 @@ function vMidday(){
   }
   var h2='<div class="card hero pop"><h2>¡Equipos sorteados! 🎉</h2><p>Cada equipo arranca la tarde con la suma de los promedios de la mañana de sus jugadoras.</p></div>';
   TEAM_IDS.forEach(function(t,i){h2+=teamMini(t,i);});
-  if(S.settings.cards)h2+='<div class="card"><h3 style="margin-top:0">🃏 Cartas de la tarde</h3><p class="muted">En cada partido a una pareja le toca una carta. Cada equipo recibe 3: una contra, un beneficio y un arranque. Se descubren al sortear.</p></div>';
+  if(S.settings.cards)h2+='<div class="card"><h3 style="margin-top:0">🃏 Cartas de la tarde</h3><p class="muted">'+(NC()===3?'En 9 de los 12 partidos a una pareja le toca una carta':'En cada partido a una pareja le toca una carta')+'. Cada equipo recibe 3: una contra, un beneficio y un arranque. Se descubren al sortear.</p></div>';
   return h2+'<button class="btn big" data-act="toAfternoon">▶️ Arrancar la tarde</button>';
 }
 function teamMini(t,i){
@@ -741,9 +754,9 @@ function rulesCard(){
     '<li>Partidos a 5 games (a 3 en modo emergencia). En 4-4 define el game siguiente. Punto de oro en 40-40.</li>'+
     '<li>Las parejas se sortean siempre, para que todas jueguen con todas sin repetir compañera.</li>'+
     '<li>Cada una suma los games de su pareja. Ranking por promedio (games ÷ partidos).</li>'+
-    '<li>Mañana: 10 partidos (+ extra si sobra tiempo).</li>'+
+    '<li>Mañana: '+MORNING_N()+' partidos en '+NC()+' canchas (+ extra si sobra tiempo).</li>'+
     '<li>Mediodía: 5 bombos de 3 según el promedio, una de cada bombo a cada equipo. Arranque = suma de promedios.</li>'+
-    '<li>Tarde: 9 partidos, equipo contra equipo. Cada equipo juega 6.</li>'+
+    '<li>Tarde: '+AFT_N()+' partidos, equipo contra equipo. Cada equipo juega '+(2*AFT_N()/3)+'.</li>'+
     '<li>Empates por un título: tiebreak a 10 o sorteo.</li>'+
     '<li>Modo emergencia: los partidos a 3 se cuentan como si fueran a 5, para que sea justo.</li></ul></details>'+
     '<h3>🃏 Cartas (si están activadas)</h3>'+
@@ -751,11 +764,11 @@ function rulesCard(){
     '<div class="cardinfo"><div class="ci">👑</div><div><b>Cazar a la líder</b> (mañana): si la 1ª del ranking pierde, las ganadoras suman +1 cada una. Desde el 3er partido.</div></div>'+
     Object.keys(CARDS).map(function(k){var c=CARDS[k];return '<div class="cardinfo"><div class="ci">'+c.icon+'</div><div><b>'+c.name+'</b> <span class="muted">('+KIND[c.kind]+', tarde)</span>: '+c.desc+'</div></div>';}).join('')+
     '<div class="cardinfo"><div class="ci">🔥</div><div><b>Racha</b> (tarde): desde la 2ª victoria seguida, cada victoria suma +1 al equipo.</div></div>'+
-    '<p class="muted">A la tarde, cada equipo recibe 3 cartas (contra, beneficio y arranque). Turbo, Robo y Racha suman solo para el equipo.</p>';
+    '<p class="muted">A la tarde, cada equipo recibe 3 cartas (contra, beneficio y arranque)'+(NC()===3?'; con 3 canchas hay 3 partidos sin carta':'')+'. Turbo, Robo y Racha suman solo para el equipo.</p>';
 }
 function vMas(){
   var st=S.settings, h='';
-  h+='<h2 class="whiteh">⚙️ Ajustes</h2><div class="card">'+
+  h+='<h2 class="whiteh">⚙️ Ajustes</h2><div class="card">'+courtsRow()+
     '<div class="setrow"><span>🃏 Jugar con cartas<br><span class="muted">Pareja doble, líder, cartas de la tarde y racha. Si lo apagás, es un torneo tradicional.</span></span><button class="sw '+(st.cards?'on':'')+'" data-act="tgCards">'+(st.cards?'Sí':'No')+'</button></div>'+
     '<div class="setrow"><span>⏱ Duración máxima de cada tanda<br><span class="muted">Para calcular la hora de fin y avisarte si vienen atrasadas.</span></span><button class="sw on" data-act="tgDur">'+dur(st.maxMin)+'</button></div>'+
     '<div class="setrow"><span>⚡ Modo emergencia<br><span class="muted">Los partidos que se sorteen desde ahora van a 3 games. Se cuentan como si fueran a 5, así es justo.</span></span><button class="sw '+(st.emergency?'bad':'')+'" data-act="tgEmerg">'+(st.emergency?'Activado':'No')+'</button></div>'+
@@ -902,7 +915,7 @@ A.rrgo=function(){var id=RR.id,ex=RR.ex.slice();closeModal();FORCE=true;
 A.extraM=function(){commit(function(){S.extraM=(S.extraM||0)+1;});toast('➕ Sorteá el partido extra en la cancha libre');};
 A.toMidday=function(){commit(function(){S.phase='midday';S.settings.emergency=false;});window.scrollTo(0,0);};
 A.drawTeams=function(){if(tryCommit(drawTeams)){confetti();window.scrollTo(0,0);}};
-A.toAfternoon=function(){commit(function(){makeCardPlan();S.phase='afternoon';S.settings.emergency=false;});toast('🌇 ¡Arranca la tarde!');window.scrollTo(0,0);};
+A.toAfternoon=function(){commit(function(){S.aftN=AFT_N();makeCardPlan();S.phase='afternoon';S.settings.emergency=false;});toast('🌇 ¡Arranca la tarde!');window.scrollTo(0,0);};
 A.toClosed=function(){commit(function(){S.phase='closed';S.settings.emergency=false;});confetti();window.scrollTo(0,0);};
 A.toSunday=function(){
   modal('<h2>🌞 Domingo</h2><p>Juegan la <b>Gran Final</b> las 4 primeras del sábado (3 partidos, cancha 1). El resto juega la <b>Copa Revancha</b>. Son unas 2 horas.</p><p class="muted">La Gran Final se juega siempre sin extras.</p>'+
@@ -915,6 +928,7 @@ A.tieRnd=function(){var c=TIE.c,i=0;modal('<h2>🎲 Sorteando…</h2><div class=
   var iv=setInterval(function(){var el=$('#roul');if(el)el.textContent=c[i++%c.length].label;},90);
   setTimeout(function(){clearInterval(iv);var w=c[Math.floor(Math.random()*c.length)];var el=$('#roul');if(el)el.textContent='🏆 '+w.label;setTimeout(function(){setTie(w.id);},1200);},2200);};
 A.tgCards=function(){commit(function(){S.settings.cards=!S.settings.cards;});toast(S.settings.cards?'🃏 Con cartas':'Torneo tradicional, sin cartas');};
+A.tgCourts=function(){if(!canChangeCourts())return toast('Se cambia entre tandas');commit(function(){S.settings.courts=NC()===3?2:3;});toast('🎾 '+NC()+' canchas');};
 A.tgDur=function(){commit(function(){var i=DURS.indexOf(S.settings.maxMin);S.settings.maxMin=DURS[(i+1)%DURS.length];});};
 A.tgEmerg=function(){commit(function(){S.settings.emergency=!S.settings.emergency;});toast(S.settings.emergency?'⚡ Los próximos partidos van a 3 games':'Partidos a 5 games');};
 A.tgLesion=function(){commit(function(){S.settings.lesion=S.settings.lesion==='4'?'prestada':'4';});};

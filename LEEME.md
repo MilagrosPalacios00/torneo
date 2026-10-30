@@ -1,4 +1,4 @@
-# App del Torneo de Dobles (versión 2)
+# App del Torneo de Dobles (versión 3: 2 o 3 canchas)
 
 ## Actualizar en GitHub
 1. En tu repositorio: **Add file → Upload files**.
@@ -8,7 +8,7 @@
 4. En el iPhone: abrí la app desde el ícono **con señal**, cerrala del todo y volvé a abrirla.
 5. Prueba en modo avión otra vez.
 
-Ojo: la versión nueva arranca en blanco (los datos de prueba de la versión vieja no se pasan).
+Lo que tengas cargado de pruebas se mantiene. Elegí las canchas en la pantalla de inicio o en ⚙️ Más.
 
 ## Durante el torneo
 - Exportá un respaldo al cerrar la mañana y a mitad de la tarde (⚙️ Más).
